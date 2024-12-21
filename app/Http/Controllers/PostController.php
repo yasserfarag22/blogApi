@@ -2,68 +2,76 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\PostRequest;
 use App\Models\Post;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class PostController extends Controller
 {
 
     public function index(Request $request)
     {
-        $posts = Post::with('author')->when($request->category, function($query) use ($request) {
-            return $query->where('category', $request->category);
-        })->when($request->author, function($query) use ($request) {
-            return $query->where('author_id', $request->author);
-        })->when($request->start_date && $request->end_date, function($query) use ($request) {
-            return $query->whereBetween('created_at', [$request->start_date, $request->end_date]);
-        })->paginate(10);
+        $posts = Post::with('author')
+            ->when($request->category, fn($query) => $query->where('category', $request->category))
+            ->when($request->author, fn($query) => $query->where('author_id', $request->author))
+            ->when($request->start_date && $request->end_date, fn($query) =>
+            $query->whereBetween('created_at', [$request->start_date, $request->end_date])
+            )
+            ->paginate(10);
 
         return response()->json($posts);
     }
 
-    public function store(Request $request)
-    {
-        $request->validate([
-            'title' => 'required|string|max:255',
-            'content' => 'required|string',
-            'category' => 'required|in:Technology,Lifestyle,Education',
-        ]);
 
-        $post = new Post();
-        $post->title = $request->title;
-        $post->content = $request->content;
-        $post->category = $request->category;
-        $post->author_id = auth()->user()->id;
-        $post->save();
+    public function store(PostRequest $request)
+    {
+        $post = Post::create([
+            'title' => $request->title,
+            'content' => $request->content,
+            'category' => $request->category,
+            'author_id' => auth()->id(),
+        ]);
 
         return response()->json($post, 201);
     }
 
+
     public function show($id)
     {
-        $post = Post::with('author')->find($id);
+        $post = Post::with('author')->findOrFail($id);
+
+        $this->authorizePostAccess($post);
+
         return response()->json($post);
     }
 
-    public function update(Request $request, $id)
+    public function update(PostRequest $request, $id)
     {
         $post = Post::findOrFail($id);
-        if ($post->author_id != auth()->user()->id && auth()->user()->role != 'admin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
 
-        $post->update($request->only('title', 'content', 'category'));
+        $this->authorizePostAccess($post);
+
+        $post->update($request->validated());
+
         return response()->json($post);
     }
 
     public function destroy($id)
     {
         $post = Post::findOrFail($id);
-        if ($post->author_id != auth()->user()->id && auth()->user()->role != 'admin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
-        }
+
+        $this->authorizePostAccess($post);
 
         $post->delete();
+
         return response()->json(['message' => 'Post deleted']);
+    }
+
+    private function authorizePostAccess(Post $post)
+    {
+        if (!Auth::user()->isAdmin() && Auth::id() !== $post->author_id) {
+            abort(403, 'Unauthorized');
+        }
     }
 }

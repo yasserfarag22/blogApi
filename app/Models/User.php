@@ -23,6 +23,15 @@ class User extends Authenticatable implements JWTSubject{
         'password',
         'remember_token',
     ];
+    public function isAdmin()
+    {
+        return $this->role === 'admin';
+    }
+
+    public function isAuthor()
+    {
+        return $this->role === 'author';
+    }
 
     public function posts()
     {
